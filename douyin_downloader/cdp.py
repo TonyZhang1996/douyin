@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -70,6 +72,46 @@ class CdpSession:
     browser: str
     port: int
     proc: subprocess.Popen | None
+    temp_user_data_dir: Path | None = None
+
+
+def _candidate_ports(preferred_port: int) -> list[int]:
+    ports = [preferred_port]
+    for p in range(9223, 9231):
+        if p != preferred_port:
+            ports.append(p)
+    return ports
+
+
+def _start_browser_once(
+    *,
+    browser: str,
+    port: int,
+    user_data_dir: Path,
+    profile: str,
+    headless: bool,
+) -> subprocess.Popen:
+    exe = _find_browser_exe(browser)
+    args = [
+        str(exe),
+        f"--remote-debugging-port={port}",
+        "--remote-allow-origins=*",
+        f"--user-data-dir={str(user_data_dir)}",
+        f"--profile-directory={profile}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "about:blank",
+    ]
+    if headless:
+        args.insert(1, "--headless=new")
+        args.insert(1, "--disable-gpu")
+
+    return subprocess.Popen(
+        args,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+    )
 
 
 def start_cdp_browser(
@@ -79,63 +121,78 @@ def start_cdp_browser(
     profile: str = "Default",
     headless: bool = False,
 ) -> CdpSession:
-    # If already running with CDP, reuse it.
     if _try_http_json(f"http://127.0.0.1:{port}/json/version", timeout=0.5):
         return CdpSession(browser=browser, port=port, proc=None)
 
-    exe = _find_browser_exe(browser)
-    udd = Path(user_data_dir) if user_data_dir else _default_user_data_dir(browser)
+    base_udd = Path(user_data_dir) if user_data_dir else _default_user_data_dir(browser)
+    ports = _candidate_ports(port)
+    last_error: str | None = None
 
-    # Note: we intentionally use the real user profile so the browser itself can
-    # access cookies even if they are app-bound/encrypted on disk.
-    args = [
-        str(exe),
-        f"--remote-debugging-port={port}",
-        "--remote-allow-origins=*",
-        f'--user-data-dir={str(udd)}',
-        f'--profile-directory={profile}',
-        "--no-first-run",
-        "--no-default-browser-check",
-        "about:blank",
-    ]
-    if headless:
-        # Prefer modern headless if available.
-        args.insert(1, "--headless=new")
-        args.insert(1, "--disable-gpu")
-
-    proc = subprocess.Popen(
-        args,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-    )
-
-    if not _wait_port(port, timeout_s=15.0):
+    for p in ports:
+        if _try_http_json(f"http://127.0.0.1:{p}/json/version", timeout=0.5):
+            return CdpSession(browser=browser, port=p, proc=None)
+        proc = _start_browser_once(
+            browser=browser,
+            port=p,
+            user_data_dir=base_udd,
+            profile=profile,
+            headless=headless,
+        )
+        if _wait_port(p, timeout_s=12.0):
+            return CdpSession(browser=browser, port=p, proc=proc)
         try:
             proc.terminate()
         except Exception:
             pass
-        raise RuntimeError(f"failed to start {browser} with CDP on port {port}")
+        last_error = f"failed on port {p}"
 
-    return CdpSession(browser=browser, port=port, proc=proc)
+    if user_data_dir is None:
+        temp_udd = Path(tempfile.mkdtemp(prefix=f"{browser}-cdp-"))
+        for p in ports:
+            if _try_http_json(f"http://127.0.0.1:{p}/json/version", timeout=0.5):
+                return CdpSession(browser=browser, port=p, proc=None, temp_user_data_dir=temp_udd)
+            proc = _start_browser_once(
+                browser=browser,
+                port=p,
+                user_data_dir=temp_udd,
+                profile=profile,
+                headless=headless,
+            )
+            if _wait_port(p, timeout_s=12.0):
+                return CdpSession(browser=browser, port=p, proc=proc, temp_user_data_dir=temp_udd)
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            last_error = f"failed with temp profile on port {p}"
+        shutil.rmtree(temp_udd, ignore_errors=True)
+
+    raise RuntimeError(
+        f"failed to start {browser} with CDP. tried ports: {', '.join(map(str, ports))}. "
+        f"last_error: {last_error or 'unknown'}. "
+        "Try closing Edge/Chrome and retry."
+    )
 
 
 def stop_cdp_browser(session: CdpSession) -> None:
-    if not session.proc:
-        return
     try:
-        # Kill process tree, avoid leaving browsers around.
-        subprocess.run(
-            ["taskkill", "/PID", str(session.proc.pid), "/T", "/F"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    except Exception:
-        try:
-            session.proc.terminate()
-        except Exception:
-            pass
+        if session.proc:
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(session.proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=5,
+                )
+            except Exception:
+                try:
+                    session.proc.terminate()
+                except Exception:
+                    pass
+    finally:
+        if session.temp_user_data_dir is not None:
+            shutil.rmtree(session.temp_user_data_dir, ignore_errors=True)
 
 
 def export_netscape_cookies_via_cdp(
@@ -160,7 +217,8 @@ def export_netscape_cookies_via_cdp(
     )
     try:
         # New target endpoint may be disabled (405) on some Edge builds. Reuse an existing page target.
-        targets = _http_json(f"http://127.0.0.1:{port}/json/list", timeout=2.0)
+        cdp_port = session.port
+        targets = _http_json(f"http://127.0.0.1:{cdp_port}/json/list", timeout=2.0)
         pages = [t for t in targets if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
         if not pages:
             raise RuntimeError("CDP did not expose any page targets on /json/list")
@@ -283,7 +341,8 @@ def fetch_douyin_detail_json_via_cdp(
         headless=headless,
     )
     try:
-        targets = _http_json(f"http://127.0.0.1:{port}/json/list", timeout=2.0)
+        cdp_port = session.port
+        targets = _http_json(f"http://127.0.0.1:{cdp_port}/json/list", timeout=2.0)
         pages = [t for t in targets if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
         if not pages:
             raise RuntimeError("CDP did not expose any page targets on /json/list")

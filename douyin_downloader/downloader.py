@@ -101,15 +101,25 @@ def download(opts: DownloadOptions) -> Path | None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if opts.via_cdp:
-        data = fetch_douyin_detail_json_via_cdp(
-            browser=opts.via_cdp,
-            url=url,
-            port=opts.cdp_port,
-            user_data_dir=opts.cdp_user_data_dir,
-            profile=opts.cdp_profile,
-            headless=bool(opts.cdp_headless),
-            timeout_s=90.0,
-        )
+        try:
+            data = fetch_douyin_detail_json_via_cdp(
+                browser=opts.via_cdp,
+                url=url,
+                port=opts.cdp_port,
+                user_data_dir=opts.cdp_user_data_dir,
+                profile=opts.cdp_profile,
+                headless=bool(opts.cdp_headless),
+                timeout_s=90.0,
+            )
+        except Exception as e:
+            msg = str(e)
+            if "failed to start" in msg.lower() and "cdp" in msg.lower():
+                raise DouyinDownloaderError(
+                    "CDP ????????? Edge/Chrome ????\n"
+                    "?????????????Edge/Chrome?????????\n\n"
+                    f"????: {msg}"
+                )
+            raise DouyinDownloaderError(msg)
 
         aweme = (data.get("aweme_detail") or data.get("awemeDetail") or {})
         desc = (aweme.get("desc") or "douyin").strip()
