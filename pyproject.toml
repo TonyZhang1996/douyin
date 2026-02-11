@@ -17,12 +17,13 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourname/douyin-video-downloader"
-Repository = "https://github.com/yourname/douyin-video-downloader"
-Issues = "https://github.com/yourname/douyin-video-downloader/issues"
+Homepage = "https://github.com/TonyZhang1996/douyin"
+Repository = "https://github.com/TonyZhang1996/douyin"
+Issues = "https://github.com/TonyZhang1996/douyin/issues"
 
 [project.scripts]
 douyin-dl = "douyin_downloader.cli:main"
+douyin-dl-gui = "douyin_downloader.gui:main"
 
 [tool.setuptools]
 package-dir = {"" = "."}

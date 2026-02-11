@@ -1,79 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import os
-import re
 import sys
-import tempfile
-from pathlib import Path
-
-from yt_dlp import YoutubeDL
-from yt_dlp.cookies import SUPPORTED_BROWSERS, SUPPORTED_KEYRINGS
-
-from .cdp import (
-    download_url_to_file,
-    export_netscape_cookies_via_cdp,
-    fetch_douyin_detail_json_via_cdp,
+from .downloader import (
+    DownloadOptions,
+    DouyinDownloaderError,
+    download,
+    extract_url,
+    parse_cookies_from_browser,
 )
-
-
-_TRAILING_PUNCT = ")]}>,.;:!?'\"，。；：！？、】【）】》…"
-
-
-def extract_url(text: str) -> str | None:
-    # Grab the first http(s) URL from share text.
-    m = re.search(r"https?://\S+", text)
-    if not m:
-        return None
-    url = m.group(0).strip()
-    url = url.rstrip(_TRAILING_PUNCT)
-    return url
-
-
-def parse_cookies_from_browser(spec: str) -> tuple[str, str | None, str | None, str | None]:
-    """
-    Parse yt-dlp cookies-from-browser spec: BROWSER[+KEYRING][:PROFILE][::CONTAINER]
-    Returns (browser_name, profile, keyring, container) where:
-      - browser_name is lowercased
-      - keyring is uppercased (if provided)
-    """
-    m = re.fullmatch(
-        r"""(?x)
-        (?P<name>[^+:]+)
-        (?:\s*\+\s*(?P<keyring>[^:]+))?
-        (?:\s*:\s*(?!:)(?P<profile>.+?))?
-        (?:\s*::\s*(?P<container>.+))?
-        """,
-        spec.strip(),
-    )
-    if not m:
-        raise ValueError(f"invalid --cookies-from-browser value: {spec!r}")
-
-    name, keyring, profile, container = m.group("name", "keyring", "profile", "container")
-    name = name.lower().strip()
-    if name not in SUPPORTED_BROWSERS:
-        raise ValueError(
-            f"unsupported browser for --cookies-from-browser: {name!r}. "
-            f"Supported: {', '.join(sorted(SUPPORTED_BROWSERS))}"
-        )
-
-    if keyring is not None:
-        keyring = keyring.upper().strip()
-        if keyring not in SUPPORTED_KEYRINGS:
-            raise ValueError(
-                f"unsupported keyring for --cookies-from-browser: {keyring!r}. "
-                f"Supported: {', '.join(sorted(map(str, SUPPORTED_KEYRINGS)))}"
-            )
-
-    if profile is not None:
-        profile = profile.strip()
-    if container is not None:
-        container = container.strip()
-        if container.lower() == "none":
-            container = None
-
-    return (name, profile, keyring, container)
-
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -166,138 +101,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-
-    raw_text = " ".join(args.text).strip()
-    url = extract_url(raw_text) or raw_text
-
-    out_dir = Path(args.output)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.via_cdp:
-        # Browser-first method: use a real profile/session to bypass anti-bot that blocks raw HTTP.
-        data = fetch_douyin_detail_json_via_cdp(
-            browser=args.via_cdp,
-            url=url,
-            port=args.cdp_port,
-            user_data_dir=args.cdp_user_data_dir,
-            profile=args.cdp_profile,
-            headless=bool(args.cdp_headless),
-            timeout_s=90.0,
-        )
-
-        aweme = (data.get("aweme_detail") or data.get("awemeDetail") or {})
-        desc = (aweme.get("desc") or "douyin").strip()
-        aweme_id = str(aweme.get("aweme_id") or aweme.get("awemeId") or "video")
-        video = aweme.get("video") or {}
-
-        # Prefer play_addr URL list (usually non-watermark). Fallback to bit_rate variants.
-        play = (video.get("play_addr") or video.get("playAddr") or {})
-        url_list = play.get("url_list") or play.get("urlList") or []
-        if not url_list:
-            br = video.get("bit_rate") or video.get("bitRate") or []
-            if br and isinstance(br, list):
-                pa = (br[0].get("play_addr") or br[0].get("playAddr") or {})
-                url_list = pa.get("url_list") or pa.get("urlList") or []
-
-        if not url_list:
-            print("ERROR: could not find playable URL in captured JSON (possible anti-bot/captcha)", file=sys.stderr)
-            return 2
-
-        media_url = url_list[0]
-        safe = re.sub(r"[\\\\/:*?\"<>|]+", "_", desc)[:120].strip() or "douyin"
-        out_path = out_dir / f"{safe} [{aweme_id}].mp4"
-        download_url_to_file(media_url, out_path, user_agent=None, referer="https://www.douyin.com/")
-        print(f"Saved: {out_path}")
-        return 0
-
-    ydl_opts: dict = {
-        "outtmpl": str(out_dir / args.filename),
-        "noplaylist": True,
-        "quiet": False,
-        "no_warnings": False,
-        "restrictfilenames": False,
-        "windowsfilenames": True,
-    }
-
-    if args.cookies_from_cdp and (args.cookies or args.cookies_from_browser or args.via_cdp):
-        print("ERROR: use only one of --cookies / --cookies-from-browser / --cookies-from-cdp", file=sys.stderr)
-        return 2
-
-    if args.cookies:
-        ydl_opts["cookiefile"] = args.cookies
-    if args.cookies_from_browser:
-        if args.cookies:
-            print("ERROR: use either --cookies or --cookies-from-browser (not both)", file=sys.stderr)
-            return 2
-        ydl_opts["cookiesfrombrowser"] = parse_cookies_from_browser(args.cookies_from_browser)
-    if args.cookies_from_cdp:
-        # Export to a temp cookies.txt via CDP, then let yt-dlp consume it.
-        tmp_dir = Path(tempfile.mkdtemp(prefix="douyin-dl-"))
-        tmp_cookies = tmp_dir / "cookies.txt"
-        export_netscape_cookies_via_cdp(
-            browser=args.cookies_from_cdp,
-            url=url,
-            out_path=tmp_cookies,
-            port=args.cdp_port,
-            user_data_dir=args.cdp_user_data_dir,
-            profile=args.cdp_profile,
-            headless=bool(args.cdp_headless),
-        )
-        ydl_opts["cookiefile"] = str(tmp_cookies)
-
-    if args.proxy:
-        ydl_opts["proxy"] = args.proxy
-
-    if args.info_json:
-        ydl_opts["writeinfojson"] = True
-
-    # Formats: let yt-dlp decide best. Some sites expose watermark/non-watermark variants.
-    # `--no-watermark` is best-effort by asking for best video+audio.
-    if args.audio_only:
-        ydl_opts["format"] = "bestaudio/best"
-        ydl_opts["postprocessors"] = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "m4a",
-                "preferredquality": "0",
-            }
-        ]
-    else:
-        if args.no_watermark:
-            ydl_opts["format"] = "bv*+ba/b"
-        else:
-            ydl_opts["format"] = "bestvideo*+bestaudio/best"
-
     try:
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        out = download(
+            DownloadOptions(
+                text=" ".join(args.text),
+                output=args.output,
+                filename=args.filename,
+                cookies=args.cookies,
+                cookies_from_browser=args.cookies_from_browser,
+                cookies_from_cdp=args.cookies_from_cdp,
+                via_cdp=args.via_cdp,
+                cdp_port=args.cdp_port,
+                cdp_profile=args.cdp_profile,
+                cdp_user_data_dir=args.cdp_user_data_dir,
+                cdp_headless=bool(args.cdp_headless),
+                proxy=args.proxy,
+                no_watermark=bool(args.no_watermark),
+                info_json=bool(args.info_json),
+                audio_only=bool(args.audio_only),
+            )
+        )
+        if out is not None:
+            print(f"Saved: {out}")
         return 0
-    except Exception as e:
-        msg = str(e)
-        print(f"ERROR: {msg}", file=sys.stderr)
-        if "Could not copy Chrome cookie database" in msg:
-            print(
-                "Hint: yt-dlp failed to copy the Edge/Chrome cookie database.\n"
-                "  - Fully close the browser (also background processes), then retry.\n"
-                "    PowerShell: Get-Process msedge,chrome -ErrorAction SilentlyContinue | Stop-Process -Force\n"
-                "  - Or export cookies to a Netscape cookies.txt and pass: --cookies .\\cookies.txt\n",
-                file=sys.stderr,
-            )
-        elif "Failed to decrypt with DPAPI" in msg:
-            print(
-                "Hint: Your Chromium cookies may be app-bound/encrypted. Try:\n"
-                "  - Export from DevTools (recommended here): --cookies-from-cdp edge\n"
-                "  - Or export cookies.txt with a browser extension: --cookies .\\cookies.txt\n",
-                file=sys.stderr,
-            )
-        elif "Fresh cookies" in msg or "cookies" in msg.lower():
-            print(
-                "Hint: Douyin often requires fresh cookies.\n"
-                "  - Export cookies to a cookies.txt and pass: --cookies .\\cookies.txt\n"
-                "  - Or load from browser: --cookies-from-browser edge (or chrome/firefox)\n"
-                "  - Or export via CDP: --cookies-from-cdp edge\n",
-                file=sys.stderr,
-            )
+    except DouyinDownloaderError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
 

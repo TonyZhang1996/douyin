@@ -21,6 +21,16 @@ pip install -e .
 pip install .
 ```
 
+## 图形界面（小白推荐）
+
+安装后可直接启动 GUI：
+
+```powershell
+douyin-dl-gui
+```
+
+GUI 默认推荐 `CDP 高成功率` 模式，粘贴分享文案后点击“开始下载”即可。
+
 ## 使用方法
 
 ### 1. 最基础用法
@@ -58,6 +68,20 @@ douyin-dl "<url>" --cookies-from-browser edge
 ```powershell
 douyin-dl "<url>" --via-cdp edge
 ```
+
+## 打包 EXE（给普通用户）
+
+在项目根目录执行：
+
+```powershell
+.\build_exe.ps1
+```
+
+打包完成后输出：
+
+`dist\DouyinDownloaderGUI.exe`
+
+双击即可使用，不需要用户懂命令行。
 
 ## 常见问题
 
