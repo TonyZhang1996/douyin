@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ExeName = "DouyinDownloaderGUI_v2"
 
 if ($Clean) {
   Remove-Item -Recurse -Force .\build, .\dist, .\*.spec -ErrorAction SilentlyContinue
@@ -21,7 +22,7 @@ python -m PyInstaller `
   --onefile `
   --windowed `
   --icon .\assets\douyin.ico `
-  --name DouyinDownloaderGUI `
+  --name $ExeName `
   --hidden-import yt_dlp `
   --hidden-import yt_dlp.cookies `
   --hidden-import websocket `
@@ -30,4 +31,4 @@ python -m PyInstaller `
   .\douyin_downloader\gui.py
 
 Write-Host ""
-Write-Host "Build done: .\dist\DouyinDownloaderGUI.exe"
+Write-Host "Build done: .\dist\$ExeName.exe"
