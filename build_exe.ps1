@@ -20,6 +20,7 @@ python -m PyInstaller `
   --clean `
   --onefile `
   --windowed `
+  --icon .\assets\douyin.ico `
   --name DouyinDownloaderGUI `
   --hidden-import yt_dlp `
   --hidden-import yt_dlp.cookies `
