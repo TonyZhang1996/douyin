@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.pdb
+*.egg-info/
+.dist/
+build/
+dist/
+.venv/
+venv/
+.env
+.DS_Store
+.idea/
+.vscode/
+
+# secrets / local exports
+cookies*.txt
+
+# downloads
+downloads/
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.mp3

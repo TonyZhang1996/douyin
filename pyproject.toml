@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "douyin-video-downloader"
+version = "0.1.0"
+description = "Download Douyin (TikTok China) videos by URL."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Your Name" }]
+keywords = ["douyin", "tiktok", "video", "downloader", "yt-dlp"]
+dependencies = [
+  "yt-dlp>=2024.1.1",
+  "websocket-client>=1.6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourname/douyin-video-downloader"
+Repository = "https://github.com/yourname/douyin-video-downloader"
+Issues = "https://github.com/yourname/douyin-video-downloader/issues"
+
+[project.scripts]
+douyin-dl = "douyin_downloader.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["douyin_downloader*"]
