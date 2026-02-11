@@ -6,7 +6,11 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .downloader import DownloadOptions, DouyinDownloaderError, download
+try:
+    from .downloader import DownloadOptions, DouyinDownloaderError, download
+except ImportError:
+    # PyInstaller may execute this module without package context.
+    from douyin_downloader.downloader import DownloadOptions, DouyinDownloaderError, download
 
 
 class App(tk.Tk):
@@ -173,4 +177,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
