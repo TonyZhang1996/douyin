@@ -76,8 +76,9 @@ class CdpSession:
 
 
 def _candidate_ports(preferred_port: int) -> list[int]:
+    # Keep retries short to avoid repeatedly spawning many browser windows.
     ports = [preferred_port]
-    for p in range(9223, 9231):
+    for p in range(9223, 9226):
         if p != preferred_port:
             ports.append(p)
     return ports
@@ -128,22 +129,34 @@ def start_cdp_browser(
     ports = _candidate_ports(port)
     last_error: str | None = None
 
-    for p in ports:
+    for i, p in enumerate(ports):
         if _try_http_json(f"http://127.0.0.1:{p}/json/version", timeout=0.5):
             return CdpSession(browser=browser, port=p, proc=None)
+        # Only the first attempt uses the requested headless mode.
+        # Retries run headless to avoid many visible blank windows.
+        attempt_headless = headless or i > 0
         proc = _start_browser_once(
             browser=browser,
             port=p,
             user_data_dir=base_udd,
             profile=profile,
-            headless=headless,
+            headless=attempt_headless,
         )
         if _wait_port(p, timeout_s=12.0):
             return CdpSession(browser=browser, port=p, proc=proc)
         try:
-            proc.terminate()
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=5,
+            )
         except Exception:
-            pass
+            try:
+                proc.terminate()
+            except Exception:
+                pass
         last_error = f"failed on port {p}"
 
     if user_data_dir is None:
@@ -156,14 +169,23 @@ def start_cdp_browser(
                 port=p,
                 user_data_dir=temp_udd,
                 profile=profile,
-                headless=headless,
+                headless=True,
             )
             if _wait_port(p, timeout_s=12.0):
                 return CdpSession(browser=browser, port=p, proc=proc, temp_user_data_dir=temp_udd)
             try:
-                proc.terminate()
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=5,
+                )
             except Exception:
-                pass
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
             last_error = f"failed with temp profile on port {p}"
         shutil.rmtree(temp_udd, ignore_errors=True)
 

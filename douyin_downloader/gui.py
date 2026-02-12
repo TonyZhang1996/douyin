@@ -151,6 +151,7 @@ class App(tk.Tk):
                 output=self.output_dir.get().strip(),
                 via_cdp=browser if mode.startswith("CDP") else None,
                 cookies_from_browser=None if mode.startswith("CDP") else browser,
+                cdp_headless=True if mode.startswith("CDP") else False,
             )
             out = download(opts)
             if out is not None:
