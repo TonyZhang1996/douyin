@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 def _run_quiet(cmd: list[str], timeout: int = 5) -> None:
@@ -459,16 +460,31 @@ def fetch_douyin_detail_json_via_cdp(
         stop_cdp_browser(session)
 
 
-def download_url_to_file(url: str, out_path: Path, *, user_agent: str | None = None, referer: str | None = None) -> None:
+def download_url_to_file(
+    url: str,
+    out_path: Path,
+    *,
+    user_agent: str | None = None,
+    referer: str | None = None,
+    progress_cb: Callable[[int, int | None], None] | None = None,
+) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     headers = {"User-Agent": user_agent or "Mozilla/5.0"}
     if referer:
         headers["Referer"] = referer
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=60) as resp:
+        total: int | None = None
+        cl = resp.headers.get("Content-Length")
+        if cl and cl.isdigit():
+            total = int(cl)
+        downloaded = 0
         with out_path.open("wb") as f:
             while True:
                 chunk = resp.read(1024 * 256)
                 if not chunk:
                     break
                 f.write(chunk)
+                downloaded += len(chunk)
+                if progress_cb is not None:
+                    progress_cb(downloaded, total)

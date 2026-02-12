@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -36,6 +37,8 @@ class App(tk.Tk):
         self.browser = tk.StringVar(value="edge")
         self.mode = tk.StringVar(value="CDP 高成功率（推荐）")
         self.is_running = False
+        self._last_progress_line = ""
+        self._last_progress_ts = 0.0
 
         self._build()
 
@@ -110,6 +113,9 @@ class App(tk.Tk):
         self.log_widget.see("end")
         self.update_idletasks()
 
+    def _log_async(self, text: str) -> None:
+        self.after(0, lambda: self._log(text))
+
     def clear_log(self) -> None:
         self.log_widget.delete("1.0", "end")
 
@@ -153,21 +159,36 @@ class App(tk.Tk):
                 cookies_from_browser=None if mode.startswith("CDP") else browser,
                 cdp_headless=True if mode.startswith("CDP") else False,
             )
-            out = download(opts)
+            self._last_progress_line = ""
+            self._last_progress_ts = 0.0
+
+            def progress(line: str) -> None:
+                now = time.time()
+                # Throttle noisy progress lines while preserving meaningful updates.
+                if line == self._last_progress_line and now - self._last_progress_ts < 0.8:
+                    return
+                self._last_progress_line = line
+                self._last_progress_ts = now
+                self._log_async(line)
+
+            out = download(opts, progress_cb=progress)
             if out is not None:
-                self._log(f"下载完成: {out}")
+                self._log_async(f"下载完成: {out}")
             else:
-                self._log("下载完成。")
-            messagebox.showinfo("完成", "下载完成。")
+                self._log_async("下载完成。")
+            self.after(0, lambda: messagebox.showinfo("完成", "下载完成。"))
         except DouyinDownloaderError as e:
-            self._log(f"ERROR: {e}")
-            messagebox.showerror("下载失败", str(e))
+            self._log_async(f"ERROR: {e}")
+            self.after(0, lambda: messagebox.showerror("下载失败", str(e)))
         except Exception as e:
-            self._log(f"ERROR: {e}")
-            messagebox.showerror("下载失败", str(e))
+            self._log_async(f"ERROR: {e}")
+            self.after(0, lambda: messagebox.showerror("下载失败", str(e)))
         finally:
-            self.is_running = False
-            self.download_btn.config(state="normal")
+            def _done() -> None:
+                self.is_running = False
+                self.download_btn.config(state="normal")
+
+            self.after(0, _done)
 
 
 def main() -> int:

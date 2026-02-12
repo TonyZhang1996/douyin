@@ -4,6 +4,7 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from yt_dlp import YoutubeDL
 from yt_dlp.cookies import SUPPORTED_BROWSERS, SUPPORTED_KEYRINGS
@@ -100,7 +101,18 @@ def _safe_name(name: str) -> str:
     return (name[:120].strip() or "douyin").rstrip(" .")
 
 
-def download(opts: DownloadOptions) -> Path | None:
+def _fmt_size(n: float | int | None) -> str:
+    if n is None:
+        return "?"
+    x = float(n)
+    for unit in ["B", "KB", "MB", "GB"]:
+        if x < 1024 or unit == "GB":
+            return f"{x:.1f}{unit}" if unit != "B" else f"{int(x)}B"
+        x /= 1024
+    return f"{x:.1f}GB"
+
+
+def download(opts: DownloadOptions, progress_cb: Callable[[str], None] | None = None) -> Path | None:
     raw_text = opts.text.strip()
     if not raw_text:
         raise DouyinDownloaderError("empty input text/url")
@@ -148,7 +160,30 @@ def download(opts: DownloadOptions) -> Path | None:
 
         media_url = url_list[0]
         out_path = out_dir / f"{_safe_name(desc)} [{aweme_id}].mp4"
-        download_url_to_file(media_url, out_path, user_agent=None, referer="https://www.douyin.com/")
+        last_pct = {"v": -1}
+
+        def _cdp_progress(done: int, total: int | None) -> None:
+            if progress_cb is None:
+                return
+            if total and total > 0:
+                pct = int(done * 100 / total)
+                if pct == last_pct["v"]:
+                    return
+                last_pct["v"] = pct
+                progress_cb(f"下载中 {pct}% ({_fmt_size(done)}/{_fmt_size(total)})")
+            else:
+                # Unknown total size.
+                if done // (1024 * 1024) != last_pct["v"]:
+                    last_pct["v"] = done // (1024 * 1024)
+                    progress_cb(f"下载中 {_fmt_size(done)}")
+
+        download_url_to_file(
+            media_url,
+            out_path,
+            user_agent=None,
+            referer="https://www.douyin.com/",
+            progress_cb=_cdp_progress,
+        )
         return out_path
 
     ydl_opts: dict = {
@@ -199,6 +234,28 @@ def download(opts: DownloadOptions) -> Path | None:
         ]
     else:
         ydl_opts["format"] = "bv*+ba/b" if opts.no_watermark else "bestvideo*+bestaudio/best"
+
+    if progress_cb is not None:
+        last = {"pct": -1}
+
+        def _hook(d: dict) -> None:
+            status = d.get("status")
+            if status == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate")
+                done = d.get("downloaded_bytes") or 0
+                if total:
+                    pct = int(done * 100 / total)
+                    if pct != last["pct"]:
+                        last["pct"] = pct
+                        speed = d.get("speed")
+                        speed_text = f"{_fmt_size(speed)}/s" if speed else "?"
+                        progress_cb(f"下载中 {pct}% ({_fmt_size(done)}/{_fmt_size(total)}), 速度 {speed_text}")
+                else:
+                    progress_cb(f"下载中 {_fmt_size(done)}")
+            elif status == "finished":
+                progress_cb("下载完成，正在合并/后处理...")
+
+        ydl_opts["progress_hooks"] = [_hook]
 
     try:
         with YoutubeDL(ydl_opts) as ydl:
