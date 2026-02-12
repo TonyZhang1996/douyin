@@ -12,6 +12,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _run_quiet(cmd: list[str], timeout: int = 5) -> None:
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+    subprocess.run(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=timeout,
+        startupinfo=si,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
 def _http_json(url: str, timeout: float = 2.0):
     req = urllib.request.Request(url, headers={"User-Agent": "douyin-dl"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -145,13 +160,7 @@ def start_cdp_browser(
         if _wait_port(p, timeout_s=12.0):
             return CdpSession(browser=browser, port=p, proc=proc)
         try:
-            subprocess.run(
-                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                timeout=5,
-            )
+            _run_quiet(["taskkill", "/PID", str(proc.pid), "/T", "/F"])
         except Exception:
             try:
                 proc.terminate()
@@ -174,13 +183,7 @@ def start_cdp_browser(
             if _wait_port(p, timeout_s=12.0):
                 return CdpSession(browser=browser, port=p, proc=proc, temp_user_data_dir=temp_udd)
             try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                    timeout=5,
-                )
+                _run_quiet(["taskkill", "/PID", str(proc.pid), "/T", "/F"])
             except Exception:
                 try:
                     proc.terminate()
@@ -200,13 +203,7 @@ def stop_cdp_browser(session: CdpSession) -> None:
     try:
         if session.proc:
             try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(session.proc.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                    timeout=5,
-                )
+                _run_quiet(["taskkill", "/PID", str(session.proc.pid), "/T", "/F"])
             except Exception:
                 try:
                     session.proc.terminate()
