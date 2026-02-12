@@ -88,7 +88,16 @@ def parse_cookies_from_browser(spec: str) -> tuple[str, str | None, str | None, 
 
 
 def _safe_name(name: str) -> str:
-    return re.sub(r"[\\/:*?\"<>|]+", "_", name)[:120].strip() or "douyin"
+    # 1) Remove Windows-illegal chars.
+    name = re.sub(r"[\\/:*?\"<>|]+", "_", name)
+    # 2) Remove ASCII control chars (including \n, \r, \t, NUL, etc.).
+    name = re.sub(r"[\x00-\x1f\x7f]+", " ", name)
+    # 3) Collapse whitespace/newlines into single spaces for stable filenames.
+    name = re.sub(r"\s+", " ", name).strip()
+    # 4) Windows disallows trailing space/dot in path components.
+    name = name.rstrip(" .")
+    # 5) Keep filename short enough for common Windows path limits.
+    return (name[:120].strip() or "douyin").rstrip(" .")
 
 
 def download(opts: DownloadOptions) -> Path | None:

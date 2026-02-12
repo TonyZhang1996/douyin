@@ -1,6 +1,7 @@
 import unittest
 
 from douyin_downloader.cli import build_parser, extract_url, parse_cookies_from_browser
+from douyin_downloader.downloader import _safe_name
 
 
 class TestCli(unittest.TestCase):
@@ -26,6 +27,15 @@ class TestCli(unittest.TestCase):
         p = build_parser()
         ns = p.parse_args(["https://example.com/", "--via-cdp", "edge"])
         self.assertEqual(ns.via_cdp, "edge")
+
+    def test_safe_name_removes_control_chars(self):
+        raw = "标题\\n换行\\t制表符:*?<>|  "
+        safe = _safe_name(raw)
+        self.assertNotIn("\n", safe)
+        self.assertNotIn("\t", safe)
+        self.assertNotIn(":", safe)
+        self.assertNotIn("*", safe)
+        self.assertTrue(len(safe) > 0)
 
 
 if __name__ == "__main__":
