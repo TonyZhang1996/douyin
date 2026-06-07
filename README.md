@@ -4,6 +4,25 @@
 
 底层默认使用 `yt-dlp`，并提供 `CDP` 模式来提升在风控场景下的成功率。
 
+## Mac 系统可用版
+
+如果你在 macOS 上使用，建议先看 [`README_MAC.md`](README_MAC.md)。
+
+首次安装：
+
+```bash
+chmod +x install_mac.sh douyin-download
+./install_mac.sh
+```
+
+以后下载视频：
+
+```bash
+./douyin-download
+```
+
+运行后粘贴抖音链接或完整分享文本，视频会保存到 `downloads/` 文件夹。
+
 ## 安装
 
 ### 方式 A：可编辑安装（推荐开发时使用）

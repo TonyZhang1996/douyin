@@ -1,38 +1,38 @@
-# Douyin Video Downloader for macOS
+# 抖音视频下载器 - Mac 系统可用版
 
-## First-Time Setup
+## 首次安装
 
-1. Install Google Chrome.
-2. Install Python 3.
-3. Install ffmpeg:
+1. 安装 Google Chrome。
+2. 安装 Python 3。
+3. 安装 ffmpeg：
 
 ```bash
 brew install ffmpeg
 ```
 
-4. Open Terminal, enter this folder, then run:
+4. 打开终端，进入本文件夹，然后运行：
 
 ```bash
 chmod +x install_mac.sh douyin-download
 ./install_mac.sh
 ```
 
-## Download A Video
+## 下载视频
 
-Run:
+运行：
 
 ```bash
 ./douyin-download
 ```
 
-When prompted, paste a Douyin link or share text, then press Enter.
+按提示粘贴抖音链接或完整分享文本，然后按回车。
 
-Downloaded videos are saved to:
+下载好的视频会保存到：
 
 ```bash
 downloads
 ```
 
-## If A Video Fails
+## 如果某个视频失败
 
-If you see `Fresh cookies` or `possible anti-bot/captcha`, open the link in Chrome first and confirm the video can play, then run `./douyin-download` again.
+如果看到 `Fresh cookies` 或 `possible anti-bot/captcha`，先在 Chrome 里打开链接并确认视频可以播放，然后再运行 `./douyin-download`。
