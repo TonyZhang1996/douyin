@@ -1,0 +1,29 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
+CLI="$PROJECT_DIR/.venv/bin/douyin-dl"
+OUT_DIR="$PROJECT_DIR/downloads"
+
+if [[ ! -x "$CLI" ]]; then
+  echo "douyin-dl was not found at: $CLI"
+  echo "Run the installer in $PROJECT_DIR first."
+  exit 1
+fi
+
+mkdir -p "$OUT_DIR"
+
+if [[ $# -gt 0 ]]; then
+  input="$*"
+else
+  echo "Paste the Douyin link or share text, then press Enter:"
+  IFS= read -r input
+fi
+
+if [[ -z "${input//[[:space:]]/}" ]]; then
+  echo "No link/share text provided."
+  exit 1
+fi
+
+exec "$CLI" "$input" --via-cdp chrome -o "$OUT_DIR"

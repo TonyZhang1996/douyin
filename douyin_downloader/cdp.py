@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -48,11 +49,21 @@ def _find_browser_exe(browser: str) -> Path:
         candidates = [
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            str(Path.home() / "Applications" / "Microsoft Edge.app" / "Contents" / "MacOS" / "Microsoft Edge"),
+            "microsoft-edge",
+            "msedge",
         ]
     elif browser == "chrome":
         candidates = [
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            str(Path.home() / "Applications" / "Google Chrome.app" / "Contents" / "MacOS" / "Google Chrome"),
+            "google-chrome",
+            "google-chrome-stable",
+            "chrome",
+            "chromium",
         ]
     else:
         raise ValueError(f"unsupported browser: {browser!r}")
@@ -61,15 +72,31 @@ def _find_browser_exe(browser: str) -> Path:
         pp = Path(p)
         if pp.exists():
             return pp
+        found = shutil.which(p)
+        if found:
+            return Path(found)
     raise FileNotFoundError(f"could not find {browser} executable in default locations")
 
 
 def _default_user_data_dir(browser: str) -> Path:
-    local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    if browser == "edge":
-        return Path(local) / "Microsoft" / "Edge" / "User Data"
-    if browser == "chrome":
-        return Path(local) / "Google" / "Chrome" / "User Data"
+    system = platform.system()
+    if system == "Darwin":
+        if browser == "edge":
+            return Path.home() / "Library" / "Application Support" / "Microsoft Edge"
+        if browser == "chrome":
+            return Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+    elif system == "Windows":
+        local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        if browser == "edge":
+            return Path(local) / "Microsoft" / "Edge" / "User Data"
+        if browser == "chrome":
+            return Path(local) / "Google" / "Chrome" / "User Data"
+    else:
+        config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+        if browser == "edge":
+            return config / "microsoft-edge"
+        if browser == "chrome":
+            return config / "google-chrome"
     raise ValueError(f"unsupported browser: {browser!r}")
 
 
